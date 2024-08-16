@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Enlink - Admin Dashboard Template</title>
+
+    <!-- Favicon -->
+    <link rel="shortcut icon" href="assets/images/logo/favicon.png">
+    <link href="assets/css/app.min.css" rel="stylesheet">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Play:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="assets/css/custom.css">
+</head>
+
+<body>
+    <div class="app">
+        <!-- Content Wrapper START -->
+        <div class="main-content" style="height: 100vh;">
+            <div class="row centered">
+                <div class="col-sm-6 offset-sm-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="row d-none">
+                                <div class="col-6" id="local-peer">
+                                    <div class="media">
+                                        <div class="avatar avatar-icon avatar-badge avatar-square m-r-10">
+                                            <i class="anticon anticon-user text-dark"></i>
+                                            <span class="badge badge-indicator badge-danger"></span>
+                                        </div>
+                                        <div class="m-l-10">
+                                            <h6 class="m-b-0">You</h6>
+                                            <span class="text-muted font-size-13">Offline</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6" id="remote-peer">
+                                    <div class="media">
+                                        <div class="avatar avatar-icon avatar-badge avatar-square m-r-10">
+                                            <i class="anticon anticon-user text-dark"></i>
+                                            <span class="badge badge-indicator badge-danger"></span>
+                                        </div>
+                                        <div class="m-l-10">
+                                            <h6 class="m-b-0">Remote</h6>
+                                            <span class="text-muted font-size-13">Offline</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <center>
+                                <h5>
+                                    Sworno, you have an audio message. <br> Please play the audio.
+                                </h5>
+                                <br>
+                                <audio controls>
+                                    <source src="assets/request.mp3" type="audio/mpeg">
+                                </audio>
+                            </center>
+                        </div>
+                    </div>
+
+                    <div class="text-center d-none">
+                        <div class="d-inline-block d-none">
+                            <button id="disconnect-btn" class="btn btn-icon btn-danger btn-rounded btn-tone d-none"
+                                title="Disconnect">
+                                <i class="bi bi-x-circle"></i>
+                            </button>
+                            <button id="reconnect-btn" class="btn btn-icon btn-success btn-rounded btn-tone d-none"
+                                title="Reconnect">
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Core Vendors JS -->
+    <script src="assets/js/vendors.min.js"></script>
+
+    <!-- Core JS -->
+    <script src="assets/js/app.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.3.2/dist/peerjs.min.js"></script>
+
+    <script>
+        const peerId1 = '11111-22222-33333-44444-55555';
+        const peerId2 = '66666-77777-88888-99999-00000';
+        let currentPeerId = null;
+        let remotePeerId = null;
+        let peer = null;
+        let connection = null;
+
+        const peerStatus = {
+            [peerId1]: 'offline',
+            [peerId2]: 'offline'
+        };
+
+        const iceServers = [
+            { urls: "stun:stun.relay.metered.ca:80" },
+            { urls: "stun:stun.l.google.com:19302" },
+            {
+                urls: "turn:global.relay.metered.ca:80",
+                username: "9484c9a5235fd7c65e74940f",
+                credential: "aUCR+265PIgAVd1H"
+            },
+            {
+                urls: "turn:global.relay.metered.ca:80?transport=tcp",
+                username: "9484c9a5235fd7c65e74940f",
+                credential: "aUCR+265PIgAVd1H"
+            },
+            {
+                urls: "turn:global.relay.metered.ca:443",
+                username: "9484c9a5235fd7c65e74940f",
+                credential: "aUCR+265PIgAVd1H"
+            },
+            {
+                urls: "turns:global.relay.metered.ca:443?transport=tcp",
+                username: "9484c9a5235fd7c65e74940f",
+                credential: "aUCR+265PIgAVd1H"
+            },
+        ];
+
+        let idleTimeout = null;
+        const idleLimit = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const reconnectBtn = document.getElementById('reconnect-btn');
+
+        disconnectBtn.addEventListener('click', () => {
+            if (connection && connection.open) {
+                connection.close();
+            }
+            updateStatus(currentPeerId, 'offline', 'danger');
+            notifyPeers('offline');
+            disconnectBtn.classList.add('d-none');
+            reconnectBtn.classList.remove('d-none');
+            if (peer) {
+                peer.destroy(); // Ensure the peer instance is properly destroyed
+            }
+        });
+
+        reconnectBtn.addEventListener('click', () => {
+            reconnectBtn.classList.add('d-none');
+            setupPeer(currentPeerId); // Reconnect with the same peer ID
+        });
+
+        function updateStatus(peerID, status, badge) {
+            const peerElement = peerID === currentPeerId ? document.getElementById('local-peer') : document.getElementById('remote-peer');
+            if (peerElement) {
+                const statusElement = peerElement.querySelector('.text-muted');
+                const badgeElement = peerElement.querySelector('.badge-indicator');
+
+                if (statusElement) {
+                    statusElement.textContent = status;
+                    console.log(status);
+
+                }
+                if (badgeElement) {
+                    badgeElement.className = `badge badge-indicator badge-${badge}`;
+                    // console.log(badge);
+
+                }
+            }
+        }
+
+        function notifyPeers(status, audio = '') {
+            if (connection && connection.open) {
+                if (status) {
+                    connection.send({
+                        type: 'status-update',
+                        peerID: currentPeerId,
+                        status: status
+                    });
+
+                }
+                if (audio) {
+                    connection.send({
+                        type: 'audio-update',
+                        peerID: currentPeerId,
+                        status: audio
+                    });
+                }
+            }
+        }
+
+        function setupPeer(id) {
+            if (peer) {
+                peer.destroy(); // Ensure the previous peer instance is properly destroyed
+            }
+
+            if (connection && connection.open) {
+                connection.close();
+            }
+
+            peer = new Peer(id, { config: { iceServers } });
+
+            peer.on('open', (peerId) => {
+                console.log('My peer ID is: ' + peerId);
+                currentPeerId = peerId;
+                peerStatus[peerId] = 'online';
+                updateStatus(peerId, 'Online', 'success');
+                notifyPeers('online');
+                remotePeerId = (peerId === peerId1) ? peerId2 : peerId1;
+                tryConnectToRemotePeer();
+            });
+
+            peer.on('connection', (conn) => {
+                connection = conn;
+                connection.on('open', () => {
+                    console.log('Connection established with ' + conn.peer);
+                    peerStatus[conn.peer] = 'online';
+                    updateStatus(conn.peer, 'Online', 'success');
+                    notifyPeers('online');
+                    disconnectBtn.classList.remove('d-none');
+                    reconnectBtn.classList.add('d-none');
+                    resetIdleTimeout(); // Reset the idle timeout when the connection is established
+
+                    // Add the event listeners for audio only after connection is open
+                    const audioElement = document.querySelector('audio');
+
+                    audioElement.addEventListener('play', () => {
+                        if (connection && connection.open) {
+                            connection.send({
+                                type: 'audio-status',
+                                status: 'playing'
+                            });
+                        }
+                    });
+
+                    audioElement.addEventListener('pause', () => {
+                        if (connection && connection.open) {
+                            connection.send({
+                                type: 'audio-status',
+                                status: 'paused'
+                            });
+                        }
+                    });
+
+                    // Handle incoming data
+                    connection.on('data', (data) => {
+                        if (data.type === 'status-update') {
+                            peerStatus[data.peerID] = data.status;
+                            updateStatus(data.peerID, data.status === 'online' ? 'Online' : 'Idle', data.status === 'online' ? 'success' : 'warning');
+                        }
+                    });
+
+                    connection.on('close', () => {
+                        console.log('Connection closed with ' + conn.peer);
+                        peerStatus[conn.peer] = 'offline';
+                        updateStatus(conn.peer, 'offline', 'danger');
+                        disconnectBtn.classList.add('d-none');
+                        reconnectBtn.classList.remove('d-none');
+                        notifyPeers('offline');
+                    });
+                });
+
+                connection.on('data', (data) => {
+                    if (data.type === 'status-update') {
+                        peerStatus[data.peerID] = data.status;
+                        updateStatus(data.peerID, data.status === 'online' ? 'Online' : 'Idle', data.status === 'online' ? 'success' : 'warning');
+                    }
+
+                    if (data.type === 'audio-update') {
+                        peerStatus[data.peerID] = data.status;
+                        updateStatus(data.peerID, data.status);
+                    }
+                });
+
+                connection.on('close', () => {
+                    console.log('Connection closed with ' + conn.peer);
+                    peerStatus[conn.peer] = 'offline';
+                    updateStatus(conn.peer, 'offline', 'danger');
+                    disconnectBtn.classList.add('d-none');
+                    reconnectBtn.classList.remove('d-none');
+                    notifyPeers('offline');
+                });
+            });
+
+            peer.on('error', (err) => {
+                console.error('PeerJS error:', err);
+                if (err.type === 'unavailable-id') {
+                    if (id === peerId1) {
+                        setupPeer(peerId2);
+                    } else {
+                        alert('Room is full');
+                    }
+                }
+            });
+
+            peer.on('disconnected', () => {
+                peerStatus[currentPeerId] = 'offline';
+                updateStatus(currentPeerId, 'offline', 'danger');
+                notifyPeers('offline');
+                disconnectBtn.classList.add('d-none');
+                reconnectBtn.classList.remove('d-none');
+            });
+
+            window.addEventListener('beforeunload', () => {
+                if (currentPeerId) {
+                    if (currentPeerId) {
+                        handleDisconnection();
+                    }
+
+                    peerStatus[currentPeerId] = 'offline';
+                    updateStatus(currentPeerId, 'offline', 'danger');
+                    notifyPeers('offline');
+                }
+            });
+
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+        }
+
+        async function tryConnectToRemotePeer() {
+            if (!remotePeerId) return;
+
+            const conn = peer.connect(remotePeerId);
+            conn.on('open', () => {
+                console.log('Connection established with ' + remotePeerId);
+                connection = conn;
+                notifyPeers('online');
+                peerStatus[remotePeerId] = 'online';
+                updateStatus(remotePeerId, 'Online', 'success');
+                disconnectBtn.classList.remove('d-none');
+                reconnectBtn.classList.add('d-none');
+                resetIdleTimeout(); // Reset the idle timeout when the connection is established
+            });
+            conn.on('data', (data) => {
+                if (data.type === 'status-update') {
+                    peerStatus[data.peerID] = data.status;
+                    updateStatus(data.peerID, data.status === 'online' ? 'Online' : 'Idle', data.status === 'online' ? 'success' : 'warning');
+                }
+
+                if (data.type === 'audio-update') {
+                    peerStatus[data.peerID] = data.status;
+                    updateStatus(data.peerID, data.status);
+                }
+            });
+            conn.on('close', () => {
+                console.log('Connection closed with ' + remotePeerId);
+                peerStatus[remotePeerId] = 'offline';
+                updateStatus(remotePeerId, 'offline', 'danger');
+                disconnectBtn.classList.add('d-none');
+                reconnectBtn.classList.remove('d-none');
+                notifyPeers('offline');
+            });
+        }
+
+        function handleVisibilityChange() {
+            if (document.visibilityState === 'hidden') {
+                if (connection && connection.open) {
+                    peerStatus[currentPeerId] = 'idle';
+                    updateStatus(currentPeerId, 'Idle', 'warning');
+                    notifyPeers('idle');
+                    startIdleTimeout(); // Start the idle timeout when the page becomes hidden
+                }
+            } else if (document.visibilityState === 'visible') {
+                if (connection && connection.open) {
+                    peerStatus[currentPeerId] = 'online';
+                    updateStatus(currentPeerId, 'Online', 'success');
+                    notifyPeers('online');
+                    clearIdleTimeout(); // Clear the idle timeout when the page becomes visible
+                }
+            }
+        }
+
+        function startIdleTimeout() {
+            idleTimeout = setTimeout(() => {
+                if (connection && connection.open) {
+                    connection.close(); // Close the connection after 15 minutes of being idle
+                    peerStatus[currentPeerId] = 'offline';
+                    updateStatus(currentPeerId, 'offline', 'danger');
+                    notifyPeers('offline');
+                    disconnectBtn.classList.add('d-none');
+                    reconnectBtn.classList.remove('d-none');
+                }
+            }, idleLimit);
+        }
+
+        function resetIdleTimeout() {
+            clearIdleTimeout();
+            startIdleTimeout();
+        }
+
+        function clearIdleTimeout() {
+            if (idleTimeout) {
+                clearTimeout(idleTimeout);
+                idleTimeout = null;
+            }
+        }
+
+        // Start with current user as peerId1
+        setupPeer(peerId1);
+
+        // Function to handle disconnection and cleanup
+        function handleDisconnection() {
+            if (connection && connection.open) {
+                connection.close(); // Ensure the connection is closed
+            }
+            updateStatus(currentPeerId, 'offline', 'danger');
+            notifyPeers('offline');
+            disconnectBtn.classList.add('d-none');
+            reconnectBtn.classList.remove('d-none');
+            if (peer) {
+                peer.destroy(); // Ensure the peer instance is properly destroyed
+            }
+        }
+
+        function modal_toggle(id) {
+            $('#' + id).modal('toggle')
+        }
+
+        const audioElement = document.querySelector('audio');
+
+        const listeners = {
+            play: [],
+            pause: [],
+            ended: []
+        };
+
+        // Add event listeners and keep track of them
+        function addTrackedEventListener(eventType, listener) {
+            audioElement.addEventListener(eventType, listener);
+            listeners[eventType].push(listener);
+        }
+
+        // Example usage
+        addTrackedEventListener('play', () => notifyPeers('', 'Audio started playing'));
+        addTrackedEventListener('pause', () => notifyPeers('', 'Audio paused'));
+
+        // To see all listeners
+        console.log(listeners);
+    </script>
+</body>
+
+</html>
