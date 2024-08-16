@@ -64,14 +64,29 @@
                         </div>
                     </div>
 
+                    <div class="card">
+                        <div class="card-body">
+                            <table class="w-100" id="messages">
+                                <tbody>
+                                    <!-- Messages will be appended here -->
+                                </tbody>
+                            </table>
+                            <div class="input-group mt-2">
+                                <input type="text" id="message" class="form-control" placeholder="Type a message">
+                                <div class="input-group-append">
+                                    <button id="send-message" class="btn btn-primary"><i class="fas fa-paper-plane"></i></button>
+                                </div>
+                            </div>
+                            <div id="typing-indicator" class="mt-2" style="display: none;">Typing...</div>
+                        </div>
+                    </div>
+
                     <div class="text-center d-none">
                         <div class="d-inline-block d-none">
-                            <button id="disconnect-btn" class="btn btn-icon btn-danger btn-rounded btn-tone d-none"
-                                title="Disconnect">
+                            <button id="disconnect-btn" class="btn btn-icon btn-danger btn-rounded btn-tone d-none" title="Disconnect">
                                 <i class="bi bi-x-circle"></i>
                             </button>
-                            <button id="reconnect-btn" class="btn btn-icon btn-success btn-rounded btn-tone d-none"
-                                title="Reconnect">
+                            <button id="reconnect-btn" class="btn btn-icon btn-success btn-rounded btn-tone d-none" title="Reconnect">
                                 <i class="bi bi-arrow-clockwise"></i>
                             </button>
                         </div>
@@ -80,7 +95,6 @@
             </div>
         </div>
     </div>
-
 
     <!-- Core Vendors JS -->
     <script src="assets/js/vendors.min.js"></script>
@@ -133,6 +147,9 @@
 
         const disconnectBtn = document.getElementById('disconnect-btn');
         const reconnectBtn = document.getElementById('reconnect-btn');
+        const sendMessageBtn = document.getElementById('send-message');
+        const messageInput = document.getElementById('message');
+        const typingIndicator = document.getElementById('typing-indicator');
 
         disconnectBtn.addEventListener('click', () => {
             if (connection && connection.open) {
@@ -152,6 +169,48 @@
             setupPeer(currentPeerId); // Reconnect with the same peer ID
         });
 
+        sendMessageBtn.addEventListener('click', () => {
+            const message = messageInput.value;
+            if (message && connection && connection.open) {
+                connection.send({
+                    type: 'message',
+                    peerID: currentPeerId,
+                    text: message
+                });
+                displayMessage('You', message);
+                messageInput.value = ''; // Clear the input after sending
+            }
+        });
+
+        messageInput.addEventListener('input', () => {
+            if (messageInput.value && connection && connection.open) {
+                connection.send({
+                    type: 'typing',
+                    peerID: currentPeerId
+                });
+            }
+        });
+
+        function displayMessage(sender, message) {
+            const messagesTableBody = document.getElementById('messages').getElementsByTagName('tbody')[0];
+
+            // Create a new row for the message
+            const newRow = messagesTableBody.insertRow();
+            const senderCell = newRow.insertCell(0);
+            const messageCell = newRow.insertCell(1);
+
+            // Set the content of the cells
+            senderCell.textContent = sender;
+            messageCell.textContent = message;
+
+            // Optional: Adjust style for readability
+            senderCell.style.fontWeight = 'bold';
+            messageCell.style.padding = '5px';
+            newRow.style.borderBottom = '1px solid #ddd';
+
+            console.log(`Message from ${sender}: ${message}`);
+        }
+
         function updateStatus(peerID, status, badge) {
             const peerElement = peerID === currentPeerId ? document.getElementById('local-peer') : document.getElementById('remote-peer');
             if (peerElement) {
@@ -161,12 +220,10 @@
                 if (statusElement) {
                     statusElement.textContent = status;
                     console.log(status);
-
                 }
                 if (badgeElement) {
                     badgeElement.className = `badge badge-indicator badge-${badge}`;
                     // console.log(badge);
-
                 }
             }
         }
@@ -179,7 +236,6 @@
                         peerID: currentPeerId,
                         status: status
                     });
-
                 }
                 if (audio) {
                     connection.send({
@@ -250,6 +306,22 @@
                             peerStatus[data.peerID] = data.status;
                             updateStatus(data.peerID, data.status === 'online' ? 'Online' : 'Idle', data.status === 'online' ? 'success' : 'warning');
                         }
+
+                        if (data.type === 'audio-update') {
+                            peerStatus[data.peerID] = data.status;
+                            updateStatus(data.peerID, data.status);
+                        }
+
+                        if (data.type === 'message') {
+                            displayMessage('Other', data.text);
+                        }
+
+                        if (data.type === 'typing') {
+                            typingIndicator.style.display = 'block';
+                            setTimeout(() => {
+                                typingIndicator.style.display = 'none';
+                            }, 1000); // Hide typing indicator after 1 second
+                        }
                     });
 
                     connection.on('close', () => {
@@ -260,27 +332,6 @@
                         reconnectBtn.classList.remove('d-none');
                         notifyPeers('offline');
                     });
-                });
-
-                connection.on('data', (data) => {
-                    if (data.type === 'status-update') {
-                        peerStatus[data.peerID] = data.status;
-                        updateStatus(data.peerID, data.status === 'online' ? 'Online' : 'Idle', data.status === 'online' ? 'success' : 'warning');
-                    }
-
-                    if (data.type === 'audio-update') {
-                        peerStatus[data.peerID] = data.status;
-                        updateStatus(data.peerID, data.status);
-                    }
-                });
-
-                connection.on('close', () => {
-                    console.log('Connection closed with ' + conn.peer);
-                    peerStatus[conn.peer] = 'offline';
-                    updateStatus(conn.peer, 'offline', 'danger');
-                    disconnectBtn.classList.add('d-none');
-                    reconnectBtn.classList.remove('d-none');
-                    notifyPeers('offline');
                 });
             });
 
@@ -341,6 +392,17 @@
                 if (data.type === 'audio-update') {
                     peerStatus[data.peerID] = data.status;
                     updateStatus(data.peerID, data.status);
+                }
+
+                if (data.type === 'message') {
+                    displayMessage('Peer', data.text);
+                }
+
+                if (data.type === 'typing') {
+                    typingIndicator.style.display = 'block';
+                    setTimeout(() => {
+                        typingIndicator.style.display = 'none';
+                    }, 1000); // Hide typing indicator after 1 second
                 }
             });
             conn.on('close', () => {
